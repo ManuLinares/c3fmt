@@ -182,7 +182,9 @@ fn void C3Fmt.print(&self)
 		return;
 	}
 
-	//dbg(self.buf.array_view());
+	$if $feature(DEBUG):
+		dbg(self.buf.array_view());
+	$endif
 
 	usz indent_level = 0;
 	for (usz i = 0, usz j = 0; j < token_count; ++j)
@@ -249,7 +251,7 @@ fn usz C3Fmt.calculate_line_length(&self, Token[] tokens, usz indent_level)
 	return line_length;
 }
 
-fn void dbg(Token[] tokens)
+fn void dbg(Token[] tokens) @if($feature(DEBUG))
 {
 	foreach (tok : tokens)
 	{
@@ -281,9 +283,12 @@ fn void dbg(Token[] tokens)
 	}
 	io::printfn("");
 }
+
 fn void C3Fmt.print_line(&self, Token[] tokens, usz indent_level)
 {
-	//dbg(tokens);
+	$if $feature(DEBUG):
+		dbg(tokens);
+	$endif
 	if(tokens.len == 0) return;
 
 	if(tokens[^1].kind != NEWLINE && tokens[^1].kind != EOF
@@ -474,13 +479,9 @@ fn void TokenBuffer.inline_comment(&self, String text)
 	self.push(token::inline_comment(text));
 }
 
-fn usz TokenBuffer.begin_wrap_group(&self, usz priority)
+fn void TokenBuffer.begin_wrap_group(&self, usz id, usz priority)
 {
-	static usz group_id = 0;
-	group_id++;
-	self.push(token::begin_wrap_group(group_id, priority));
-
-	return group_id;
+	self.push(token::begin_wrap_group(id, priority));
 }
 
 fn void TokenBuffer.wrap_point(&self, WrapPoint wrap_point)

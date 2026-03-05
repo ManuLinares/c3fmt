@@ -78,7 +78,7 @@ fn usz? Object.to_format(&self, Formatter* formatter) @dynamic
 
 fn Object* new_obj(Allocator allocator)
 {
-	return allocator::new(allocator, Object, { .allocator = allocator, .type = void.typeid });
+	return @alloc_obj(allocator, { .allocator = allocator, .type = void.typeid });
 }
 
 fn Object* new_null()
@@ -88,22 +88,22 @@ fn Object* new_null()
 
 fn Object* new_int(int128 i, Allocator allocator)
 {
-	return allocator::new(allocator, Object, { .i = i, .allocator = allocator, .type = int128.typeid });
+	return @alloc_obj(allocator, { .i = i, .allocator = allocator, .type = int128.typeid });
 }
 
 macro Object* new_enum(e, Allocator allocator)
 {
-	return allocator::new(allocator, Object, { .i = (int128)e, .allocator = allocator, .type = @typeid(e) });
+	return @alloc_obj(allocator, { .i = (int128)e, .allocator = allocator, .type = @typeid(e) });
 }
 
 fn Object* new_float(double f, Allocator allocator)
 {
-	return allocator::new(allocator, Object, { .f = f, .allocator = allocator, .type = double.typeid });
+	return @alloc_obj(allocator, { .f = f, .allocator = allocator, .type = double.typeid });
 }
 
 fn Object* new_string(String s, Allocator allocator)
 {
-	return allocator::new(allocator, Object, { .s = s.copy(allocator), .allocator = allocator, .type = String.typeid });
+	return @alloc_obj(allocator, { .s = s.copy(allocator), .allocator = allocator, .type = String.typeid });
 }
 
 
@@ -134,7 +134,14 @@ fn void Object.free(&self)
 		default:
 			break;
 	}
-	if (self.allocator) allocator::free(self.allocator, self);
+	if (self.allocator)
+	{
+		$if Object.alignof > mem::DEFAULT_MEM_ALIGNMENT:
+			allocator::free_aligned(self.allocator, self);
+		$else
+			allocator::free(self.allocator, self);
+		$endif
+	}
 }
 
 fn bool Object.is_null(&self) @inline => self == &NULL_OBJECT;
@@ -151,7 +158,7 @@ fn bool Object.is_indexable(&self) => self.is_empty() || self.is_array();
 <*
  @require self.is_keyable()
 *>
-fn void Object.init_map_if_needed(&self) @private
+fn void object_init_map_if_needed(Object* self) @private
 {
 	if (self.is_empty())
 	{
@@ -163,7 +170,7 @@ fn void Object.init_map_if_needed(&self) @private
 <*
  @require self.is_indexable()
 *>
-fn void Object.init_array_if_needed(&self) @private
+fn void object_init_array_if_needed(Object* self) @private
 {
 	if (self.is_empty())
 	{
@@ -175,9 +182,9 @@ fn void Object.init_array_if_needed(&self) @private
 <*
  @require self.is_keyable()
 *>
-fn void Object.set_object(&self, String key, Object* new_object) @private
+fn void object_set_object(Object* self, String key, Object* new_object) @private
 {
-	self.init_map_if_needed();
+	object_init_map_if_needed(self);
 	Object*? val = self.map.get_entry(key).value;
 	defer (void)val.free();
 	self.map.set(key, new_object);
@@ -214,7 +221,7 @@ macro Object* Object.object_from_value(&self, value) @private
 macro Object* Object.set(&self, String key, value)
 {
 	Object* val = self.object_from_value(value);
-	self.set_object(key, val);
+	object_set_object(self, key, val);
 	return val;
 }
 
@@ -267,7 +274,7 @@ fn usz Object.get_len(&self)
 *>
 fn void Object.push_object(&self, Object* to_append)
 {
-	self.init_array_if_needed();
+	object_init_array_if_needed(self);
 	self.array.push(to_append);
 }
 
@@ -276,7 +283,7 @@ fn void Object.push_object(&self, Object* to_append)
 *>
 fn void Object.set_object_at(&self, usz index, Object* to_set)
 {
-	self.init_array_if_needed();
+	object_init_array_if_needed(self);
 	while (self.array.len() < index)
 	{
 		self.array.push(&NULL_OBJECT);
@@ -464,4 +471,13 @@ fn Object* Object.get_or_create_obj(&self, String key)
 alias ObjectInternalMap      @private = HashMap {String, Object*};
 alias ObjectInternalList     @private = List {Object*};
 alias ObjectInternalMapEntry @private = Entry {String, Object*};
+
+macro Object* @alloc_obj(Allocator a, #init) @private
+{
+	$if Object.alignof > mem::DEFAULT_MEM_ALIGNMENT:
+		return allocator::new_aligned(a, Object, #init)!!;
+	$else
+		return allocator::new(a, Object, #init);
+	$endif
+}
 

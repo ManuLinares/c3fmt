@@ -1,0 +1,146 @@
+name: CI & Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install C3 compiler (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl tar
+          curl -L https://github.com/c3lang/c3c/releases/latest/download/c3-linux.tar.gz -o c3.tar.gz
+          tar -xzf c3.tar.gz
+          sudo mv c3/c3c /usr/local/bin/c3c
+          sudo chmod +x /usr/local/bin/c3c
+          sudo cp -r c3 /usr/local/c3
+          echo "C3C_LIB=/usr/local/c3/lib" >> $GITHUB_ENV
+
+      - name: Install C3 compiler (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -L -o c3.tar.gz https://github.com/c3lang/c3c/releases/latest/download/c3-macos.zip
+          unzip c3.tar.gz
+          echo "C3C_LIB=$PWD/c3/lib" >> $GITHUB_ENV
+          echo "$PWD/c3" >> $GITHUB_PATH
+
+      - name: Install C3 compiler (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          curl -L -o c3.zip https://github.com/c3lang/c3c/releases/latest/download/c3-windows.zip
+          unzip c3.zip
+          echo "C3C_LIB=$PWD/c3/lib" >> $GITHUB_ENV
+          echo "$PWD/c3" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install lld (macOS)
+        if: runner.os == 'macOS'
+        run: brew install lld
+
+      - name: Install tree-sitter
+        uses: lmichaudel/ts-setup-action@master
+        with:
+          install-lib: true
+          install-cli: false
+
+      - name: Run tests
+        if: runner.os != 'Windows'
+        run: c3c test --test-show-output -L "$RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: c3c test --test-show-output -L "$env:RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
+
+      - name: Compile formatted standard library
+        if: runner.os != 'Windows'
+        working-directory: test/stdlib
+        run: c3c build
+
+      - name: Compile formatted standard library (Windows)
+        if: runner.os == 'Windows'
+        working-directory: test/stdlib
+        run: c3c build
+
+      - name: Build c3fmt
+        if: runner.os != 'Windows'
+        run: c3c build c3fmt -L "$RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
+
+      - name: Build c3fmt (Windows)
+        if: runner.os == 'Windows'
+        run: c3c build c3fmt -L "$env:RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
+
+      - name: Upload artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v6
+        with:
+          name: c3fmt-linux
+          path: build/c3fmt
+
+      - name: Upload artifact (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v6
+        with:
+          name: c3fmt-macos
+          path: build/c3fmt
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: c3fmt-windows
+          path: build/c3fmt.exe
+
+  release:
+    name: Create Release
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux binary
+        uses: actions/download-artifact@v6
+        with:
+          name: c3fmt-linux
+          path: release-bin/linux
+
+      - name: Download macOS binary
+        uses: actions/download-artifact@v6
+        with:
+          name: c3fmt-macos
+          path: release-bin/macos
+
+      - name: Download Windows binary
+        uses: actions/download-artifact@v6
+        with:
+          name: c3fmt-windows
+          path: release-bin/windows
+
+      - name: Prepare files for release
+        run: |
+          mkdir dist
+          mv release-bin/linux/c3fmt dist/c3fmt-linux
+          mv release-bin/macos/c3fmt dist/c3fmt-macos
+          mv release-bin/windows/c3fmt.exe dist/c3fmt-windows.exe
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

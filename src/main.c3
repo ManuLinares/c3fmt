@@ -15,7 +15,7 @@ fn String? format_string(
 	bool check_semantic = false
 )
 {
-	C3Fmt formatter = c3fmt::new(string, config);
+	C3Fmt formatter = c3fmt::new(string, config)!;
 	defer formatter.free();
 
 	formatter.format(check_semantic)!;
@@ -129,7 +129,7 @@ fn int main(String[] args)
 		else
 		{
 			io::eprintfn(
-				"Can't parse .c3fmt configuration file.",
+				"Can't parse .c3fmt configuration file: %s",
 				cli_options.config
 			);
 			return 1;

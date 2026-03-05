@@ -13,11 +13,14 @@ struct C3Fmt
 	bool wrapping_enabled;
 	bool formatter_enabled;
 
+	usz next_group_id;
+
+	TSParser* parser;
 	TokenBuffer buf;
 	DString dstr_buf;
 }
 
-fn C3Fmt new(String source_code, Config config)
+fn C3Fmt? new(String source_code, Config config)
 {
 	C3Fmt instance;
 
@@ -25,6 +28,7 @@ fn C3Fmt new(String source_code, Config config)
 	instance.config = config;
 	instance.wrapping_enabled = true;
 	instance.formatter_enabled = true;
+	instance.parser = ts::parser::new_with_language(tree_sitter_c3::language())!;
 	instance.buf.init(mem);
 	instance.dstr_buf.init(mem);
 
@@ -33,9 +37,17 @@ fn C3Fmt new(String source_code, Config config)
 
 fn void C3Fmt.free(&self)
 {
+	ts::parser_delete(self.parser);
 	self.source_code.free(mem);
 	self.buf.free();
 	self.dstr_buf.free();
+}
+
+fn usz C3Fmt.begin_wrap_group(&self, usz priority)
+{
+	self.next_group_id++;
+	self.buf.begin_wrap_group(self.next_group_id, priority);
+	return self.next_group_id;
 }
 
 faultdef SOURCE_CODE_CONTAINS_ERROR;
@@ -43,12 +55,9 @@ faultdef CODE_SEMANTIC_MISMATCH;
 
 fn void? C3Fmt.format(&self, bool check = false)
 {
-	TSParser* parser = ts::parser::new_with_language(
-		tree_sitter_c3::language()
-	)!;
-	defer ts::parser_delete(parser);
+	ts::parser_reset(self.parser);
 
-	TSTree* tree = ts::parser::parse_string(parser, null, self.source_code);
+	TSTree* tree = ts::parser::parse_string(self.parser, null, self.source_code);
 	defer ts::tree_delete(tree);
 
 	TSNode root = ts::tree_root_node(tree);
@@ -64,8 +73,9 @@ fn void? C3Fmt.format(&self, bool check = false)
 
 	if (check)
 	{
+		ts::parser_reset(self.parser);
 		TSTree* f_tree = ts::parser::parse_string(
-			parser,
+			self.parser,
 			null,
 			self.dstr_buf.str_view()
 		);
@@ -84,6 +94,84 @@ module c3fmt @private;
 
 import std::io;
 import ts;
+
+<*
+ Reattach a comment node to the previous statement when it appears immediately
+ after it (blank_line_amount == 0, trailing) or one line below a scope-exit
+ token (blank_line_amount == 1, restick).
+
+ Returns true if the comment was reattached and the caller's loop should
+ continue to the next child.
+
+ @param child            : "The comment node to reattach."
+ @param blank_line_amount : "Blank lines between the previous sibling and this node."
+ @param with_repair_indent : "When true, first pop() the last token and handle the case where it is an INDENT token (compound/asm variant). When false, simply gobble the last newline (uncanny-scope variant)."
+*>
+fn bool C3Fmt.reattach_comment(&self, TSNode child, int blank_line_amount, bool with_repair_indent = true)
+{
+	if (!(blank_line_amount == 0 || blank_line_amount == 1)) return false;
+	if (!child.is_comment()) return false;
+
+	bool popped_indent = false;
+	if (self.buf.last()!!.kind == DEDENT)
+	{
+		self.buf.pop()!!;
+		popped_indent = true;
+	}
+
+	if (blank_line_amount == 0) // trailing
+	{
+		if (with_repair_indent)
+		{
+			bool repair_indent = false;
+			Token tok = self.buf.pop()!!;
+
+			if (tok.kind == INDENT)
+			{
+				assert (self.buf.gobble_last_newline());
+				repair_indent = true;
+			}
+			else
+			{
+				assert (tok.kind == NEWLINE);
+			}
+
+			self.buf.space();
+			self.process_comment(child);
+			self.buf.newline();
+
+			if (repair_indent)
+			{
+				self.buf.indent();
+			}
+		}
+		else
+		{
+			assert (self.buf.gobble_last_newline());
+			self.buf.space();
+			self.process_comment(child);
+			self.buf.newline();
+		}
+
+		if (popped_indent)
+		{
+			self.buf.dedent();
+		}
+		return true;
+	}
+
+	if (blank_line_amount == 1
+		&& popped_indent) // restick to previous uncanny stmt
+	{
+		self.process_comment(child);
+		self.buf.newline();
+		self.buf.dedent();
+		return true;
+	}
+
+	return false;
+}
+
 
 <*
  Format a compound block" like node. Open and close with a specified string (that can contain line return(s)).
@@ -116,60 +204,9 @@ fn void C3Fmt.process_compound(&self, TSNode node)
 		}
 
 		// Reattach comment
-		if (i > 0 && child.is_comment()
-			&& (blank_line_amount == 0 || blank_line_amount == 1))
+		if (i > 0 && self.reattach_comment(child, blank_line_amount))
 		{
-			bool popped_indent = false;
-			if (self.buf.last()!!.kind == DEDENT)
-			{
-				self.buf.pop()!!;
-				popped_indent = true;
-			}
-
-			if (blank_line_amount == 0) // trailing
-			{
-				bool repair_indent = false;
-				Token tok = self.buf.pop()!!;
-
-				if (tok.kind == INDENT)
-				{
-					assert (self.buf.gobble_last_newline());
-					repair_indent = true;
-				}
-				else
-				{
-					assert (tok.kind == NEWLINE);
-				}
-
-				self.buf.space();
-				self.process_comment(child);
-
-				self.buf.newline();
-
-				if (repair_indent)
-				{
-					self.buf.indent();
-				}
-
-				if (popped_indent)
-				{
-					self.buf.dedent();
-				}
-				continue;
-			}
-
-
-
-			if (blank_line_amount == 1
-				&& popped_indent) // restick to previous uncanny stmt
-			{
-				self.process_comment(child);
-
-				self.buf.newline();
-				self.buf.dedent();
-				continue;
-			}
-
+			continue;
 		}
 
 		self.process_node(child, true);
@@ -396,42 +433,10 @@ fn void C3Fmt.process_uncanny_scope(
 			}
 
 			// Reattach comment
-			if (i > entered_scope_id + 1 && child.is_comment()
-				&& (blank_line_amount == 0 || blank_line_amount == 1))
+			if (i > entered_scope_id + 1
+				&& self.reattach_comment(child, blank_line_amount, false))
 			{
-				bool popped_indent = false;
-				if (self.buf.last()!!.kind == DEDENT)
-				{
-					self.buf.pop()!!;
-					popped_indent = true;
-				}
-
-				if (blank_line_amount == 0) // trailing
-				{
-					assert (self.buf.gobble_last_newline());
-					self.buf.space();
-					self.process_comment(child);
-					self.buf.newline();
-
-					if (popped_indent)
-					{
-						self.buf.dedent();
-					}
-					continue;
-				}
-
-
-
-				if (blank_line_amount == 1
-					&& popped_indent) // restick to previous uncanny stmt
-				{
-					self.process_comment(child);
-
-					self.buf.newline();
-					self.buf.dedent();
-					continue;
-				}
-
+				continue;
 			}
 
 			if (child.type() == scope_exit_type)
@@ -654,60 +659,9 @@ fn void C3Fmt.process_asm_block_stmt(&self, TSNode node)
 			}
 
 			// Reattach comment
-			if (i > in_scope_id && child.is_comment()
-				&& (blank_line_amount == 0 || blank_line_amount == 1))
+			if (i > in_scope_id && self.reattach_comment(child, blank_line_amount))
 			{
-				bool popped_indent = false;
-				if (self.buf.last()!!.kind == DEDENT)
-				{
-					self.buf.pop()!!;
-					popped_indent = true;
-				}
-
-				if (blank_line_amount == 0) // trailing
-				{
-					bool repair_indent = false;
-					Token tok = self.buf.pop()!!;
-
-					if (tok.kind == INDENT)
-					{
-						assert (self.buf.gobble_last_newline());
-						repair_indent = true;
-					}
-					else
-					{
-						assert (tok.kind == NEWLINE);
-					}
-
-					self.buf.space();
-					self.process_comment(child);
-
-					self.buf.newline();
-
-					if (repair_indent)
-					{
-						self.buf.indent();
-					}
-
-					if (popped_indent)
-					{
-						self.buf.dedent();
-					}
-					continue;
-				}
-
-
-
-				if (blank_line_amount == 1
-					&& popped_indent) // restick to previous uncanny stmt
-				{
-					self.process_comment(child);
-
-					self.buf.newline();
-					self.buf.dedent();
-					continue;
-				}
-
+				continue;
 			}
 
 			self.process_node(child, true);
@@ -892,7 +846,7 @@ fn void C3Fmt.process_node(
 				skip_space_if_after: { "." },
 			);
 		case "func_param_list":
-			usz id = self.buf.begin_wrap_group(2);
+			usz id = self.begin_wrap_group(2);
 			self.process_composite(
 				node,
 				skip_space_type: { ")", "," },
@@ -930,7 +884,7 @@ fn void C3Fmt.process_node(
 		case "macro_param_list":
 			if (node.has_child_of_type("param"))
 			{
-				usz id = self.buf.begin_wrap_group(2);
+				usz id = self.begin_wrap_group(2);
 				self.process_composite(
 					node,
 					skip_space_type: { ")", ",", ";" },
@@ -1192,7 +1146,7 @@ fn void C3Fmt.process_node(
 			// TODO maybe avoid wrapping if there is just ONE argument ?
 			if (node.has_child_of_type("call_arg"))
 			{
-				usz id = self.buf.begin_wrap_group(2);
+				usz id = self.begin_wrap_group(2);
 				self.process_composite(
 					node,
 					skip_space_type: { ")", "," },
@@ -1233,7 +1187,7 @@ fn void C3Fmt.process_node(
 		case "maybe_deref_expr":
 			self.process_sequence(node);
 		case "binary_expr":
-			usz id = self.buf.begin_wrap_group(2);
+			usz id = self.begin_wrap_group(2);
 			self.process_composite(
 				node,
 				add_wrap_point_fn: fn (String type, String field, usz id)
@@ -1268,7 +1222,7 @@ fn void C3Fmt.process_node(
 		case "initializer_list":
 			if (node.has_child_of_type("initializer_element"))
 			{
-				usz id = self.buf.begin_wrap_group(2);
+				usz id = self.begin_wrap_group(2);
 				self.process_composite(
 					node,
 					skip_space_type: { "," },
@@ -1337,7 +1291,7 @@ fn void C3Fmt.process_node(
 			if (node.has_child_of_type(".")
 				&& ts::node_parent(node).type() != "param_path")
 			{
-				usz id = self.buf.begin_wrap_group(0);
+				usz id = self.begin_wrap_group(0);
 				self.process_sequence(
 					node,
 					add_wrap_point_fn: fn (String type, String field, usz id)

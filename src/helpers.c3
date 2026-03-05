@@ -17,9 +17,10 @@ fn TSNode TSNode.get_child_with_field(self, String field_name)
 {
 	for (uint i = 0; i < ts::node_child_count(self); ++i)
 	{
-		if (ts::node_child(self, i).field_name() == field_name)
+		TSNode child = ts::node_child(self, i);
+		if (child.field_name() == field_name)
 		{
-			return ts::node_child(self, i);
+			return child;
 		}
 	}
 
@@ -45,7 +46,8 @@ fn String TSNode.field_name(self)
 
 	for (uint i = 0; i < ts::node_child_count(parent); ++i)
 	{
-		if (ts::node_eq(ts::node_child(parent, i), self))
+		TSNode child = ts::node_child(parent, i);
+		if (ts::node_eq(child, self))
 		{
 			ZString field_name = ts::node_field_name_for_child(parent, i);
 			return field_name == null ? "<NULL>" : field_name.str_view();

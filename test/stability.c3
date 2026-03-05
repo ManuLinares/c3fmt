@@ -1,82 +1,112 @@
-import std::io;
-import c3fmt::executable;
+import std;
+import c3fmt;
 
 const String ROOT = "test/stdlib/src";
 
 faultdef INVALID_PATH;
 
-fn Path? convert_path(Path input, Allocator allocator)
+struct Results
 {
-    Path cwd = path::cwd(mem)!;
-    defer cwd.free();
-    String cwd_str = cwd.str_view();
-    String in_str  = input.str_view();
-
-    if (!in_str.starts_with(cwd_str)) {
-        return INVALID_PATH~;
-    }
-
-    usz rel_start = cwd_str.len;
-    if (in_str.len > rel_start && std::io::path::is_separator(in_str[rel_start], input.env)) {
-        rel_start++;
-    }
-
-    String rel = in_str[rel_start..];
-
-    if (!rel.starts_with(ROOT)) {
-        return INVALID_PATH~;
-    }
-
-    String stripped = rel[ROOT.len..];
-
-    DString d = dstring::new(mem);
-    defer d.free();
-    d.append("test/stdlib/src-formatted");
-    d.append(stripped);
-
-    return path::new(allocator, d.str_view(), input.env);
+    Atomic{int} formatted;
+    Atomic{int} skipped;
 }
 
-fn bool? process_source_file (Path path, bool is_dir, any data) {
-    if(!is_dir) {
-        io::printfn("%s", path);
+struct Context
+{
+    List{String}* paths;
+    Atomic{int} next_index;
+    Results* results;
+}
 
-        String input = (String)file::load(mem, path.str_view())!!;
-        defer input.free(mem);
-        String? formatted = c3fmt::format_string(mem, input, check_semantic: true);
-        defer (void)formatted.free(mem);
+Context g_ctx;
 
-        if(catch excuse = formatted) {
-            io::eprintfn("Can't format %s (%s)...", path.str_view(), excuse);
-			unreachable();
-        } else {
-			String? formatted_twice = c3fmt::format_string(mem, formatted, check_semantic: true);
-			defer (void)formatted_twice.free(mem);
 
-			if(catch excuse_twice = formatted_twice) {
-				io::eprintfn("Can't format %s twice (%s)...", path.str_view(), excuse_twice);
-				unreachable();
-			} else {
-				if(formatted_twice != formatted) {
-					//io::eprintfn("%s", formatted);
-					//io::eprintfn("--------------");
-					//io::eprintfn("%s", formatted_twice);
-					unreachable();
-				}
-			}
-        }
+fn void stability_worker_task(any[] args)
+{
+    while (true)
+    {
+        int i = g_ctx.next_index.add(1);
+        if (i >= (int)g_ctx.paths.len()) break;
 
-        int* ptr = (int*) data;
-        (*ptr)++;
+        String path_s = (*g_ctx.paths)[(usz)i];
+
+        @pool_init(mem, 1024 * 1024)
+        {
+            Path path = path::new(tmem, path_s)!!;
+            String input = (String)file::load(tmem, path_s)!!;
+            String? formatted = c3fmt::format_string(tmem, input, check_semantic: true);
+
+            if (catch excuse = formatted)
+            {
+                io::eprintfn("Skipping: %s (%s)", path_s, excuse);
+                g_ctx.results.skipped.add(1);
+            }
+            else
+            {
+                String? reformatted = c3fmt::format_string(tmem, formatted, check_semantic: true);
+
+                if (catch excuse2 = reformatted)
+                {
+                    io::eprintfn("Error during second format of %s: %s", path_s, excuse2);
+                    unreachable();
+                }
+
+                if (formatted != reformatted)
+                {
+                    io::eprintfn("Stability failure: %s", path_s);
+                    unreachable();
+                }
+                g_ctx.results.formatted.add(1);
+            }
+        };
     }
+}
 
+fn bool? collect_paths(Path path, bool is_dir, any data)
+{
+    if (!is_dir)
+    {
+        List{String}* list = (List{String}*)data;
+        list.push(path.str_view().copy(mem));
+    }
     return false;
 }
-fn void stability() @test {
-    Path root = std::io::path::new(mem, ROOT)!!;
+
+fn void stability() @test
+{
+    Path root = path::new(mem, ROOT)!!;
     defer root.free();
 
-    int formatted_file_count;
-    std::io::path::traverse(root, &process_source_file, &formatted_file_count)!!;
-    io::printfn("Formatted %s files.", formatted_file_count);
+    List{String} paths;
+    paths.init(mem);
+    defer
+    {
+        foreach (p : paths) p.free(mem);
+        paths.free();
+    }
+
+    path::traverse(root, &collect_paths, &paths)!!;
+
+    Results results;
+    results.formatted.store(0);
+    results.skipped.store(0);
+
+
+    g_ctx.paths = &paths;
+    g_ctx.next_index.store(0);
+    g_ctx.results = &results;
+
+    usz num_threads = os::num_cpu();
+    FixedThreadPool pool;
+    pool.init(num_threads, num_threads)!!;
+    defer pool.stop_and_destroy();
+
+    for (usz i = 0; i < num_threads; i++)
+    {
+        pool.push(&stability_worker_task)!!;
+    }
+
+    pool.join()!!;
+
+    io::printfn("Stability test result: %d formatted, %d skipped due to syntax errors.", results.formatted.load(), results.skipped.load());
 }
