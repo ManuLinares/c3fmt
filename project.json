@@ -12,6 +12,10 @@
   "targets": {
     "c3fmt": {
       "type": "executable"
+    },
+    "update-grammar": {
+      "type": "prepare",
+      "exec": [ "$PWD/update_tree_sitter_c3.sh" ]
     }
   },
   "cpu": "generic",

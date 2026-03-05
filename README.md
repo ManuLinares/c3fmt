@@ -39,30 +39,47 @@ pass your own path to `c3fmt`, or force the default configuration.
 You can look at [.c3fmt](.c3fmt) for the default configuration.
 ## Building
 
-Run `c3c build` to build `c3fmt`.
+Building requires the [C3 compiler](https://c3-lang.org/) and the [tree-sitter](https://github.com/tree-sitter/tree-sitter) SDK library.
 
-The only dependency is the [tree-sitter](https://github.com/tree-sitter/tree-sitter) sdk.
+To build the executable:
+```bash
+c3c build
+```
+The binary will be located in `build/c3fmt`.
+
+### Updating the Grammar
+
+To update the C3 tree-sitter grammar from the latest upstream sources:
+```bash
+c3c build update-grammar --trust=full
+```
+This runs a prepare script that clones the [tree-sitter-c3](https://github.com/c3lang/tree-sitter-c3) repository, regenerates the parser, and updates `lib/tree_sitter_c3.c3l`.
+
+## Tests
+
+Run all tests using the C3 compiler:
+```bash
+c3c test
+```
+
+The test suite includes:
+- **Corpus**: Compares formatted output against expected `_f.c3` files.
+- **Stability**: Ensures that formatting already-formatted code produces no changes (idempotency).
+- **Stdlib**: Formats the entire C3 standard library and verifies that it still compiles and maintains the same syntax tree.
 
 ## Vendored libraries
 
-`src/opt.c3` is a vendored copy of [getopt.c3l](https://github.com/NotsoanoNimus/getopt.c3l).
-
+- `src/opt.c3`: A vendored copy of [getopt.c3l](https://github.com/NotsoanoNimus/getopt.c3l).
+- `lib/tree_sitter.c3l`: C3 bindings for the core tree-sitter SDK.
+- `lib/tree_sitter_c3.c3l`: C3 grammar bindings for tree-sitter.
 
 ## Planned features / wishlist
 
 - Code wrapping (current breaks with nested constructions).
 - Align consecutive assignments / declaration / comments.
-- Wrapping indent option. (ContinuationIndentWidth)
+- Wrapping indent option (ContinuationIndentWidth).
 - Align wrapped items.
-- Space before <...> options.
-- Import sorting
-- Pointer alignment ? (kind of a pain and I think right alignment is heretic)
+- Space before `<...>` options.
+- Import sorting.
+- Pointer alignment calibration.
 
-## Tests
-
-There are two tests for the moment :
-
-- Corpus takes a `.c3` source file, format it and compare it the same file with a `_f.c3` format corresponding to the expected output.
-- Stdlib formats every file from the C3 standard library, then verifiy it still compiles with the same semantic. (For the moment it won't automatically try to compile it, but you can go to `test/stdlib` and run `c3c build`)
-
-Each test checks that the syntax tree of the formatted code is the same as the original one.
