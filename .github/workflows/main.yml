@@ -61,21 +61,21 @@ jobs:
 
       - name: Run tests
         if: runner.os != 'Windows'
-        run: c3c test -L "$RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
+        run: c3c test --test-show-output -L "$RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
-        run: c3c test -L "$env:RUNNER_TOOL_CACHE/windows/tree-sitter/lib/lib"
+        run: c3c test --test-show-output -L "$env:RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
 
       - name: Compile formatted standard library
         if: runner.os != 'Windows'
         working-directory: test/stdlib
-        run: c3c build -L "$RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
+        run: c3c build
 
       - name: Compile formatted standard library (Windows)
         if: runner.os == 'Windows'
         working-directory: test/stdlib
-        run: c3c build -L "$env:RUNNER_TOOL_CACHE/windows/tree-sitter/lib/lib"
+        run: c3c build
 
       - name: Build c3fmt
         if: runner.os != 'Windows'
@@ -83,7 +83,7 @@ jobs:
 
       - name: Build c3fmt (Windows)
         if: runner.os == 'Windows'
-        run: c3c build c3fmt -L "$env:RUNNER_TOOL_CACHE/windows/tree-sitter/lib/lib"
+        run: c3c build c3fmt -L "$env:RUNNER_TOOL_CACHE/tree-sitter/lib/lib"
 
       - name: Upload artifact (Linux)
         if: runner.os == 'Linux'
