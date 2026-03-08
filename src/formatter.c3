@@ -1392,7 +1392,7 @@ fn void C3Fmt.process_node(
 				skip_space_if_after: { ".." },
 				append_newline: true
 			);
-		case "interface_declaration": // TODO investigate the comma
+		case "interface_declaration":
 			self.process_composite(
 				node,
 				skip_space_type: { "," },
