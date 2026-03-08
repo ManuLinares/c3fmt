@@ -520,12 +520,13 @@ fn void C3Fmt.process_composite(
 		TSNode child = ts::node_child(node, i);
 		String type = child.type();
 
+		String prev_type = i > 0 ? ts::node_child(node, i - 1).type() : "";
+
 		if (i > 0
 			&& !(i == 1 && ts::node_child(node, 0).type() == "doc_comment")
 			&& !skip_space_type.contains(type)
-			&& !skip_space_if_after.contains(
-				ts::node_child(node, i - 1).type()
-			))
+			&& !skip_space_if_after.contains(prev_type)
+			&& !(prev_type.starts_with("$") && (type == "paren_expr" || type == "(")))
 		{
 			self.buf.space();
 		}
@@ -633,6 +634,9 @@ fn void C3Fmt.process_uncanny_scope(
 	String scope_exit_type = ""
 )
 {
+	bool is_single_line = node.start_point_row() == node.end_point_row();
+	usz start_idx = self.buf.len();
+
 	bool entered_scope = false;
 	uint entered_scope_id;
 
@@ -720,6 +724,7 @@ fn void C3Fmt.process_uncanny_scope(
 				self.buf.newline();
 
 				assert (i == ts::node_child_count(node) - 1);
+				if (is_single_line) self.collapse_single_line(start_idx);
 				return;
 			}
 
@@ -746,6 +751,7 @@ fn void C3Fmt.process_uncanny_scope(
 		}
 	}
 	self.dedent();
+	if (is_single_line) self.collapse_single_line(start_idx);
 }
 
 <*
@@ -1111,6 +1117,36 @@ fn void C3Fmt.process_doc_comment(&self, TSNode node)
 	self.buf.text("*>");
 	self.buf.newline();
 	self.wrapping_enabled = true;
+}
+
+fn void C3Fmt.collapse_single_line(&self, usz start_idx)
+{
+	bool last_was_space = false;
+	usz write_idx = start_idx;
+	for (usz read_idx = start_idx; read_idx < self.buf.len(); read_idx++)
+	{
+		Token t = self.buf[read_idx];
+		if (t.kind == NEWLINE || t.kind == INDENT || t.kind == DEDENT)
+		{
+			if (!last_was_space && write_idx > start_idx)
+			{
+				self.buf[write_idx++] = token::space();
+				last_was_space = true;
+			}
+		}
+		else if (t.kind == WRAP_POINT || t.kind == BEGIN_WRAP_GROUP)
+		{
+			// skip
+		}
+		else
+		{
+			last_was_space = (t.kind == SPACE);
+			self.buf[write_idx++] = t;
+		}
+	}
+
+	while (self.buf.len() > write_idx) (void)self.buf.pop();
+	self.buf.push(token::newline());
 }
 
 <*
@@ -1857,7 +1893,7 @@ fn void C3Fmt.process_node(
 			self.process_composite(
 				node,
 				skip_space_type: { ";", ")", "," },
-				skip_space_if_after: { "(", "$defined" },
+				skip_space_if_after: { "(" },
 				append_newline: true
 			);
 		case "ct_echo_stmt":
