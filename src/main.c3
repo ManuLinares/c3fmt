@@ -29,10 +29,13 @@ import c3fmt;
 import opt;
 import std::io;
 import std::io::path;
+import std::io::file;
 import std::thread;
 import std::os;
+import std::os::process;
 import std::collections::list;
 import std::os::posix;
+import libc;
 
 alias FileList = List { String };
 
@@ -371,6 +374,25 @@ fn void? format_file(String path, Config config, Context* ctx)
 		{
 			ctx.print_mu.lock();
 			io::eprintfn("Format mismatch: %s", path);
+
+			// Show diff if possible
+			if (try p = process::create({"diff", "--unified=0", "-p", "--color=always", "--label", path, "--label", "formatted", path, "-"}, options: { .search_user_path = true }))
+			{
+				(void)p.write_to_stdin(formatted);
+				// Close stdin to signal end of input
+				libc::fclose(p.stdin_file);
+				p.stdin_file = null;
+
+				char[1024] buf;
+				while (try len = p.read_stdout(&buf, buf.len))
+				{
+					if (len == 0) break;
+					io::print((String)buf[:len]);
+				}
+				(void)p.join();
+				p.destroy();
+			}
+
 			ctx.has_mismatch = true;
 			ctx.print_mu.unlock();
 		}
