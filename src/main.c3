@@ -42,6 +42,7 @@ struct CLIOptions
 	bool stdin;
 	String config;
 	bool force_default_config;
+	bool check;
 }
 
 CLIOptions cli_options;
@@ -50,6 +51,7 @@ struct Context
 {
 	Config config;
 	thread::Mutex print_mu;
+	bool has_mismatch;
 }
 
 fn void format_worker(any[] args)
@@ -86,7 +88,10 @@ fn int main(String[] args)
 		&cli_options.config, //
 		null,
 		"default",
-		&cli_options.force_default_config
+		&cli_options.force_default_config, //
+		null,
+		"check",
+		&cli_options.check
 	);
 	// c3fmt on
 
@@ -107,6 +112,7 @@ fn int main(String[] args)
 				io::printfn("\t--stdout         - Output result to stdout.");
 				io::printfn("\t--config=<path>  - Specify a config file.");
 				io::printfn("\t--default        - Force default config.");
+				io::printfn("\t--check          - Finish with error if files are not formatted.");
 				return 1;
 			default:
 				return 1;
@@ -197,13 +203,14 @@ fn int main(String[] args)
 		return 1;
 	}
 
-	if (!cli_options.in_place && !cli_options.stdout)
+	if (!cli_options.in_place && !cli_options.stdout && !cli_options.check)
 	{
 		cli_options.stdout = true;
 	}
 
 	Context ctx;
 	ctx.config = config;
+	ctx.has_mismatch = false;
 	ctx.print_mu.init()!!;
 	defer (void)ctx.print_mu.destroy();
 
@@ -242,7 +249,7 @@ fn int main(String[] args)
 	}
 	pool.join();
 
-	return 0;
+	return ctx.has_mismatch ? 1 : 0;
 }
 
 fn bool? collect_callback(io::path::Path p, bool is_dir, any data)
@@ -305,5 +312,17 @@ fn void? format_file(String path, Config config, Context* ctx)
 		io::printfn("%s", formatted);
 		ctx.print_mu.unlock();
 	}
+
+	if (cli_options.check)
+	{
+		if (content != formatted)
+		{
+			ctx.print_mu.lock();
+			io::eprintfn("Format mismatch: %s", path);
+			ctx.has_mismatch = true;
+			ctx.print_mu.unlock();
+		}
+	}
+
 	return;
 }
