@@ -29,7 +29,7 @@ fn Config default_config()
 		.tab_size = 4,
 		.indent_width = 4,
 		.max_blank_line_between_statements = 2,
-		.max_line_length = 250,
+		.max_line_length = 120,
 		.brace_style = ALLMAN,
 		.else_on_newline = true,
 		.align_assignments = true,
