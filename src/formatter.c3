@@ -4,6 +4,7 @@ import ts;
 import tree_sitter_c3;
 
 import c3fmt::printer;
+import c3fmt::token;
 
 struct C3Fmt
 {
@@ -154,10 +155,13 @@ fn bool C3Fmt.reattach_comment(&self, TSNode child, int blank_line_amount, bool 
 	if (!child.is_comment()) return false;
 
 	bool popped_indent = false;
-	if (self.buf.last()!!.kind == DEDENT)
+	if (try last = self.buf.last())
 	{
-		self.buf.pop()!!;
-		popped_indent = true;
+		if (last.kind == TokenKind.DEDENT)
+		{
+			(void)self.buf.pop();
+			popped_indent = true;
+		}
 	}
 
 	if (blank_line_amount == 0) // trailing
@@ -165,16 +169,32 @@ fn bool C3Fmt.reattach_comment(&self, TSNode child, int blank_line_amount, bool 
 		if (with_repair_indent)
 		{
 			bool repair_indent = false;
+			if (self.buf.len() == 0)
+			{
+				if (popped_indent) self.dedent();
+				return false;
+			}
 			Token tok = self.buf.pop()!!;
 
-			if (tok.kind == INDENT)
+			if (tok.kind == TokenKind.INDENT)
 			{
-				assert (self.buf.gobble_last_newline());
+				if (!self.buf.gobble_last_newline())
+				{
+					self.buf.push(tok);
+					if (popped_indent) self.dedent();
+					return false;
+				}
 				repair_indent = true;
+			}
+			else if (tok.kind == TokenKind.NEWLINE)
+			{
+				// fine
 			}
 			else
 			{
-				assert (tok.kind == NEWLINE);
+				self.buf.push(tok);
+				if (popped_indent) self.dedent();
+				return false;
 			}
 
 			self.buf.space();
@@ -188,7 +208,11 @@ fn bool C3Fmt.reattach_comment(&self, TSNode child, int blank_line_amount, bool 
 		}
 		else
 		{
-			assert (self.buf.gobble_last_newline());
+			if (self.buf.len() == 0 || !self.buf.gobble_last_newline())
+			{
+				if (popped_indent) self.dedent();
+				return false;
+			}
 			self.buf.space();
 			self.process_comment(child);
 			self.buf.newline();
@@ -208,6 +232,11 @@ fn bool C3Fmt.reattach_comment(&self, TSNode child, int blank_line_amount, bool 
 		self.buf.newline();
 		self.dedent();
 		return true;
+	}
+
+	if (popped_indent)
+	{
+		self.dedent(); // Revert
 	}
 
 	return false;
