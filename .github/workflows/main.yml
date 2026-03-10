@@ -26,7 +26,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl tar
-          curl -L https://github.com/c3lang/c3c/releases/latest/download/c3-linux.tar.gz -o c3.tar.gz
+          curl -L https://github.com/c3lang/c3c/releases/download/latest-prerelease-tag/c3-linux.tar.gz -o c3.tar.gz
           tar -xzf c3.tar.gz
           sudo mv c3/c3c /usr/local/bin/c3c
           sudo chmod +x /usr/local/bin/c3c
@@ -36,7 +36,7 @@ jobs:
       - name: Install C3 compiler (macOS)
         if: runner.os == 'macOS'
         run: |
-          curl -L -o c3.tar.gz https://github.com/c3lang/c3c/releases/latest/download/c3-macos.zip
+          curl -L -o c3.tar.gz https://github.com/c3lang/c3c/releases/download/latest-prerelease-tag/c3-macos.zip
           unzip c3.tar.gz
           echo "C3C_LIB=$PWD/c3/lib" >> $GITHUB_ENV
           echo "$PWD/c3" >> $GITHUB_PATH
@@ -44,7 +44,7 @@ jobs:
       - name: Install C3 compiler (Windows)
         if: runner.os == 'Windows'
         run: |
-          curl -L -o c3.zip https://github.com/c3lang/c3c/releases/latest/download/c3-windows.zip
+          curl -L -o c3.zip https://github.com/c3lang/c3c/releases/download/latest-prerelease-tag/c3-windows.zip
           unzip c3.zip
           echo "C3C_LIB=$PWD/c3/lib" >> $GITHUB_ENV
           echo "$PWD/c3" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
