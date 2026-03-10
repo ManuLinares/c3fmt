@@ -23,18 +23,12 @@ fn String? format_string(
 	return formatter.dstr_buf.copy_str(allocator);
 }
 
+<* c3fmt executable entry point *>
 module c3fmt::executable;
 
 import c3fmt;
 import opt;
-import std::io;
-import std::io::path;
-import std::io::file;
-import std::thread;
-import std::os;
-import std::os::process;
-import std::collections::list;
-import std::os::posix;
+import std;
 import libc;
 
 alias FileList = List { String };
@@ -55,7 +49,7 @@ CLIOptions cli_options;
 struct Context
 {
 	Config config;
-	thread::Mutex print_mu;
+	Mutex print_mu;
 	bool has_mismatch;
 }
 
@@ -126,8 +120,8 @@ fn int main(String[] args)
 
 	if (version_asked)
 	{
-		io::printfn("c3fmt version:     \t0.2.0");
-		io::printfn("target c3c version:\t0.7.9");
+		io::printfn("c3fmt version:     \t0.2.3");
+		io::printfn("target c3c version:\t0.7.11");
 		return 0;
 	}
 
@@ -190,7 +184,7 @@ fn int main(String[] args)
 		}
 
 		String? formatted = c3fmt::format_string(mem, read.str_view(), config);
-		defer (void)formatted.free(mem);
+		defer formatted.free(mem)!!;
 
 		if (catch excuse = formatted)
 		{
@@ -216,11 +210,15 @@ fn int main(String[] args)
 	Context ctx;
 	ctx.config = config;
 	ctx.has_mismatch = false;
-	ctx.print_mu.init()!!;
-	defer (void)ctx.print_mu.destroy();
+	if (try ctx.print_mu.init()){
+		defer ctx.print_mu.destroy();
+	} else {
+		io::eprintfn("Mutex error.");
+		return 1;
+	}
 
 	FileList files;
-	files.init(mem);
+	files.init(mem, 512);
 	defer {
 		foreach (f : files) f.free(mem);
 		files.free();
@@ -323,80 +321,61 @@ fn void? format_file(String path, Config config, Context* ctx)
 	String? content = (String)file::load(mem, path);
 	defer (void)content.free(mem);
 
-	if (catch excuse = content)
+	Mutex.@in_lock(&ctx.print_mu)
 	{
-		ctx.print_mu.lock();
-		io::eprintfn("Error: could not read file %s: %s", path, excuse);
-		ctx.print_mu.unlock();
-		return excuse~;
-	}
-
-	String? formatted = c3fmt::format_string(mem, content, config);
-	defer (void)formatted.free(mem);
-
-	if (catch excuse = formatted)
-	{
-		ctx.print_mu.lock();
-		io::eprintfn(
-			"Error: could not format file %s: %s.",
-			path,
-			excuse
-		);
-		ctx.print_mu.unlock();
-		return excuse~;
-	}
-
-	if (cli_options.in_place)
-	{
-		if (catch excuse = file::save(path, formatted))
+		if (catch excuse = content)
 		{
-			ctx.print_mu.lock();
-			io::eprintfn(
-				"Error: could not write to file %s: %s",
-				path,
-				excuse
-			);
-			ctx.print_mu.unlock();
+			io::eprintfn("Error: could not read file %s: %s", path, excuse);
 			return excuse~;
 		}
-	}
 
-	if (cli_options.stdout)
-	{
-		ctx.print_mu.lock();
-		io::printfn("%s", formatted);
-		ctx.print_mu.unlock();
-	}
+		String? formatted = c3fmt::format_string(mem, content, config);
+		defer (void)formatted.free(mem);
 
-	if (cli_options.check)
-	{
-		if (content != formatted)
+		if (catch excuse = formatted)
 		{
-			ctx.print_mu.lock();
-			io::eprintfn("Format mismatch: %s", path);
-
-			// Show diff if possible
-			if (try p = process::create({"diff", "--unified=0", "-p", "--color=always", "--label", path, "--label", "formatted", path, "-"}, options: { .search_user_path = true }))
-			{
-				(void)p.write_to_stdin(formatted);
-				// Close stdin to signal end of input
-				libc::fclose(p.stdin_file);
-				p.stdin_file = null;
-
-				char[1024] buf;
-				while (try len = p.read_stdout(&buf, buf.len))
-				{
-					if (len == 0) break;
-					io::print((String)buf[:len]);
-				}
-				(void)p.join();
-				p.destroy();
-			}
-
-			ctx.has_mismatch = true;
-			ctx.print_mu.unlock();
+			io::eprintfn("Error: could not format file %s: %s.", path, excuse);
+			return excuse~;
 		}
-	}
 
+		switch
+		{
+			case cli_options.in_place:
+				if (catch excuse = file::save(path, formatted))
+				{
+					io::eprintfn("Error: could not write to file %s: %s", path, excuse);
+					return excuse~;
+				}
+			case cli_options.stdout:
+				io::printfn("%s", formatted);
+			case cli_options.check:
+				if (content != formatted)
+				{
+					io::eprintfn("Format mismatch: %s", path);
+
+					// Show diff if possible
+					if (try p = process::spawn({"diff", "--unified=0", "-p", "--color=always", "--label", path, "--label", "formatted", path, "-"}))
+					{
+						(void)p.write_stdin(formatted);
+						// Close stdin to signal end of input
+						libc::fclose(p.stdin_file);
+						p.stdin_file = null;
+
+						char[1024] buf;
+						while (try len = p.read_stdout(&buf, buf.len))
+						{
+							if (len == 0) break;
+							io::print((String)buf[:len]);
+						}
+						(void)p.join();
+						p.destroy();
+					}
+
+					ctx.has_mismatch = true;
+				}
+			default:
+		}
+
+	};
 	return;
 }

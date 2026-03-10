@@ -126,5 +126,5 @@ fn void format_and_compile_std_lib() @test
 
     pool.join()!!;
 
-    io::printfn("Stdlib test result: %d formatted, %d skipped due to syntax errors.", results.formatted.load(), results.skipped.load());
+    io::printfn("Stdlib    test result: %d formatted, %d skipped due to syntax errors.", results.formatted.load(), results.skipped.load());
 }

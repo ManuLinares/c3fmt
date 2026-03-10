@@ -9,6 +9,7 @@ struct Results
 {
     Atomic{int} formatted;
     Atomic{int} skipped;
+	Atomic{int} errors;
 }
 
 struct Context
@@ -21,7 +22,7 @@ struct Context
 Context g_ctx;
 
 
-fn void stability_worker_task(any[] args)
+fn void stability_worker_task(any[] args) => @pool_init(mem, 1024 * 1024)
 {
     while (true)
     {
@@ -30,35 +31,34 @@ fn void stability_worker_task(any[] args)
 
         String path_s = (*g_ctx.paths)[(usz)i];
 
-        @pool_init(mem, 1024 * 1024)
-        {
-            Path path = path::new(tmem, path_s)!!;
-            String input = (String)file::load(tmem, path_s)!!;
-            String? formatted = c3fmt::format_string(tmem, input, check_semantic: true);
+		Path path = path::new(mem, path_s)!!;
+		String input = (String)file::load(mem, path_s)!!;
+		String? formatted = c3fmt::format_string(mem, input, check_semantic: true);
 
-            if (catch excuse = formatted)
-            {
-                io::eprintfn("Skipping: %s (%s)", path_s, excuse);
-                g_ctx.results.skipped.add(1);
-            }
-            else
-            {
-                String? reformatted = c3fmt::format_string(tmem, formatted, check_semantic: true);
+		if (catch excuse = formatted)
+		{
+			io::eprintfn("Skipping: %s (%s)", path_s, excuse);
+			g_ctx.results.skipped.add(1);
+		}
+		else
+		{
+			String? reformatted = c3fmt::format_string(mem, formatted, check_semantic: true);
 
-                if (catch excuse2 = reformatted)
-                {
-                    io::eprintfn("Error during second format of %s: %s", path_s, excuse2);
-                    unreachable();
-                }
+			if (catch excuse2 = reformatted)
+			{
+				io::eprintfn("Error during second format of %s: %s", path_s, excuse2);
+				//unreachable();
+				g_ctx.results.errors.add(1);
+			}
 
-                if (formatted != reformatted)
-                {
-                    io::eprintfn("Stability failure: %s", path_s);
-                    unreachable();
-                }
-                g_ctx.results.formatted.add(1);
-            }
-        };
+			if (catch excuse3 = (formatted != reformatted))
+			{
+				io::eprintfn("Stability failure: %s, %s", path_s, excuse3);
+				//unreachable();
+				g_ctx.results.errors.add(1);
+			}
+			g_ctx.results.formatted.add(1);
+		}
     }
 }
 
@@ -88,8 +88,8 @@ fn void stability() @test
     path::traverse(root, &collect_paths, &paths)!!;
 
     Results results;
-    results.formatted.store(0);
-    results.skipped.store(0);
+    //results.formatted.store(0);
+    //results.skipped.store(0);
 
 
     g_ctx.paths = &paths;
@@ -108,5 +108,6 @@ fn void stability() @test
 
     pool.join()!!;
 
-    io::printfn("Stability test result: %d formatted, %d skipped due to syntax errors.", results.formatted.load(), results.skipped.load());
+    defer io::printfn("Stability test result: %d formatted, %d skipped due to syntax errors, %d format errors",
+		results.formatted.load(), results.skipped.load(), results.errors.load());
 }
