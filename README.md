@@ -16,7 +16,7 @@ A customizable code formatter for the C3 language, written in C3.
 
 Usage:
 ```bash
-c3fmt [<options>] <files>
+c3fmt [<options>] <files/directories>
 ```
 Options:
 ```
@@ -27,6 +27,7 @@ Options:
 --stdout         - Output result to stdout.
 --config=<path>  - Specify a config file.
 --default        - Force default config.
+--check          - Finish with error if files are not formatted.
 ```
 
 ## Configuration
