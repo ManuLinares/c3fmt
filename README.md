@@ -5,8 +5,8 @@
 #
 
 <p align="center">
-  <img src="https://github.com/lmichaudel/c3fmt/actions/workflows/actions.yml/badge.svg">
-  <img src="https://img.shields.io/badge/c3-v7.9-blue">
+  <img src="https://github.com/lmichaudel/c3fmt/actions/workflows/main.yml/badge.svg">
+  <img src="https://img.shields.io/badge/c3-v7.11-blue">
   <img src="https://img.shields.io/badge/license-MIT-blue">
 </p>
 
