@@ -1866,7 +1866,9 @@ fn void C3Fmt.process_node(
 			if (node.has_child_of_type(".")
 				&& ts::node_parent(node).type() != "param_path")
 			{
-				usz id = self.begin_wrap_group(0);
+				bool is_method_chain = node.has_child_of_type("call_expr");
+				usz priority = is_method_chain ? 3 : 0;
+				usz id = self.begin_wrap_group(priority);
 				self.process_sequence(
 					node,
 					add_wrap_point_fn: fn (String type, String field, usz id)

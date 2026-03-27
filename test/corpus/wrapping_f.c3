@@ -20,11 +20,10 @@ fn int main(
 		30
 	);
 
-	RenderingInfo rendering_info = vk::renderingInfo().setLayerCount(
-		1
-	).setRenderArea(
-		{ .offset = { .x = 0, .y = 0 }, .extent = context.extent, }
-	);
+	RenderingInfo rendering_info = vk::renderingInfo().setLayerCount(1)
+		.setRenderArea(
+			{ .offset = { .x = 0, .y = 0 }, .extent = context.extent, }
+		);
 }
 
 fn int Termios.setAttr(
