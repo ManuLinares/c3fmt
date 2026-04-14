@@ -140,15 +140,13 @@ fn int main(String[] args)
 	{
 		Config? parsed = c3fmt::parse_from_file(cli_options.config);
 
-		if (try parsed)
+		if(catch err = parsed)
 		{
-			config = parsed;
-		}
-		else
-		{
-			io::eprintfn("Can't find config file %s.", cli_options.config);
+			io::eprintfn("Error with config file '%s' (%s)", cli_options.config, err);
 			return 1;
 		}
+
+		config = parsed;
 	}
 	else if (file::exists("./.c3fmt"))
 	{
