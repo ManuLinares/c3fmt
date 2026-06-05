@@ -82,33 +82,21 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download Linux binary
+      - name: Download artifacts
         uses: actions/download-artifact@v6
         with:
-          name: c3fmt-linux
-          path: release-bin/linux
+          path: staging
 
-      - name: Download macOS binary
-        uses: actions/download-artifact@v6
-        with:
-          name: c3fmt-macos
-          path: release-bin/macos
-
-      - name: Download Windows binary
-        uses: actions/download-artifact@v6
-        with:
-          name: c3fmt-windows
-          path: release-bin/windows
-
-      - name: Prepare files for release
+      - name: Prepare release files
         run: |
           mkdir dist
-          mv release-bin/linux/c3fmt dist/c3fmt-linux
-          mv release-bin/macos/c3fmt dist/c3fmt-macos
-          mv release-bin/windows/c3fmt.exe dist/c3fmt-windows.exe
+          mv staging/c3fmt-linux/c3fmt        dist/c3fmt-linux
+          mv staging/c3fmt-macos/c3fmt        dist/c3fmt-macos
+          mv staging/c3fmt-windows/c3fmt.exe  dist/c3fmt-windows.exe
 
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: ncipollo/release-action@v1
         with:
-          files: dist/*
-          generate_release_notes: true
+          artifacts: "dist/*"
+          generateReleaseNotes: true
+          allowUpdates: true
