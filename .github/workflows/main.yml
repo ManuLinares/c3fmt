@@ -18,7 +18,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact-name: c3fmt-linux
+            artifact-path: build/c3fmt
+          - os: macos-latest
+            artifact-name: c3fmt-macos
+            artifact-path: build/c3fmt
+          - os: windows-latest
+            artifact-name: c3fmt-windows
+            artifact-path: build/c3fmt.exe
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -59,26 +68,11 @@ jobs:
       - name: Build c3fmt
         run: c3c build c3fmt -L "${{ runner.tool_cache }}/tree-sitter/lib/lib"
 
-      - name: Upload artifact (Linux)
-        if: runner.os == 'Linux'
+      - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: c3fmt-linux
-          path: build/c3fmt
-
-      - name: Upload artifact (macOS)
-        if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v6
-        with:
-          name: c3fmt-macos
-          path: build/c3fmt
-
-      - name: Upload artifact (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v6
-        with:
-          name: c3fmt-windows
-          path: build/c3fmt.exe
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.artifact-path }}
 
   release:
     name: Create Release
